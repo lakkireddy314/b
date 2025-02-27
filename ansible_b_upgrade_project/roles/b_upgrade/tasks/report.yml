@@ -1,5 +1,5 @@
 ---
-- name: Generate upgrade version report
+- name: Generate upgrade version report per host
   ansible.builtin.template:
     src: upgrade_version_report.j2
-    dest: "{{ playbook_dir }}/upgrade_version_report.txt"
+    dest: "{{ playbook_dir }}/upgrade_report_{{ inventory_hostname }}.txt"

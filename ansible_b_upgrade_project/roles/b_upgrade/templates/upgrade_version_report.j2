@@ -1,5 +1,5 @@
-Upgrade Version Report
-======================
+Upgrade Version Report for {{ inventory_hostname }}
+=================================================
 Date: {{ ansible_date_time.iso8601 }}
 
 {% if websphere_installed %}
@@ -10,3 +10,27 @@ Pre-upgrade Version: {{ websphere_pre_version }}
 Target Version: {{ websphere_target_version }}
 Post-upgrade Version: {{ websphere_post_version }}
 {% endif %}
+
+{% if websphere_plugins_installed %}
+WebSphere Plugins:
+------------------
+Installation Directory: {{ websphere_plugins_dir }}
+Pre-upgrade Version: {{ websphere_plugins_pre_version }}
+Target Version: {{ websphere_plugins_target_version }}
+Post-upgrade Version: {{ websphere_plugins_post_version }}
+{% endif %}
+
+{% if ibm_http_installed %}
+IBM HTTP Server:
+----------------
+Installation Directory: {{ ibm_http_dir }}
+Pre-upgrade Version: {{ ibm_http_pre_version }}
+Target Version: {{ ibm_http_target_version }}
+Post-upgrade Version: {{ ibm_http_post_version }}
+{% endif %}
+
+{% if (not websphere_installed) and (not websphere_plugins_installed) and (not ibm_http_installed) %}
+NOTE: No products installed for upgrade on this host.
+{% endif %}
+
+Overall Upgrade Status: {% if websphere_post_version == websphere_target_version and websphere_installed %}Success{% else %}Failed{% endif %}

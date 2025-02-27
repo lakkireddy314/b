@@ -1,0 +1,4 @@
+---
+- name: Fetch IBM BAW target version
+  ansible.builtin.shell: "{{ imcl_dir }}/tools/imcl listAvailablePackages -repositories {{ baw_next_repo }}"
+  register: available_baw_info

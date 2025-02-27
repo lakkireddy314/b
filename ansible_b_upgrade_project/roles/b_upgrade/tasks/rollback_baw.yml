@@ -1,0 +1,5 @@
+---
+- name: Restore IBM BAW from backup
+  ansible.builtin.shell: >
+    tar -xzf "{{ backup_dir }}/baw_backup.tar.gz" -C "{{ baw_dir }}"
+  when: baw_installed | bool

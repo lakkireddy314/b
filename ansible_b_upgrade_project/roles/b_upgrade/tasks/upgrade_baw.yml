@@ -1,0 +1,6 @@
+---
+- name: Upgrade IBM BAW to version 24.0.0.1
+  ansible.builtin.shell: "{{ imcl_dir }}/tools/imcl upgrade com.ibm.baw -repositories {{ baw_next_repo }} -installationDirectory {{ baw_dir }}"
+  register: upgrade_baw
+  failed_when: upgrade_baw.rc != 0
+  when: baw_installed | bool

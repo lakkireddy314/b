@@ -2,24 +2,32 @@
 - import_tasks: precheck.yml
 - import_tasks: pre_upgrade.yml
 - import_tasks: check_installed.yml
+- import_tasks: check_baw_installed.yml
 - import_tasks: available_versions.yml
+- import_tasks: available_baw_versions.yml
 - import_tasks: no_upgrade_check.yml
+- import_tasks: no_baw_upgrade_check.yml
 - import_tasks: backup.yml
+- import_tasks: backup_baw.yml
 
 - name: Execute upgrade tasks with rollback on failure
   block:
     - import_tasks: upgrade_websphere.yml
     - import_tasks: upgrade_plugins.yml
     - import_tasks: upgrade_ibm_http.yml
+    - import_tasks: upgrade_baw.yml
   rescue:
     - name: Rollback triggered due to upgrade failure
       ansible.builtin.debug:
         msg: "One or more upgrade tasks failed. Initiating rollback..."
     - import_tasks: rollback.yml
+    - import_tasks: rollback_baw.yml
     - name: Fail role after rollback
       ansible.builtin.fail:
         msg: "Upgrade failed; rollback executed."
   always:
     - import_tasks: post_upgrade.yml
+    - import_tasks: post_upgrade_baw.yml
     - import_tasks: report.yml
+    - import_tasks: baw_post_config.yml
     - import_tasks: post_actions.yml

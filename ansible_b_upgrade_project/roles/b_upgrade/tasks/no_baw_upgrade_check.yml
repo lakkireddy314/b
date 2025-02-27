@@ -1,0 +1,4 @@
+---
+- name: Determine if BAW upgrade is needed
+  ansible.builtin.set_fact:
+    no_baw_upgrade_needed: "{{ baw_pre_version == baw_target_version }}"

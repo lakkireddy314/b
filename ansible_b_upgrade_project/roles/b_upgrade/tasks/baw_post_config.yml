@@ -1,0 +1,6 @@
+---
+- name: Run IBM BAW post-configuration tasks
+  ansible.builtin.command: "{{ baw_dir }}/bin/bawConfig.sh -postInstall"
+  register: baw_post_config_result
+  failed_when: baw_post_config_result.rc != 0
+  when: baw_installed | bool

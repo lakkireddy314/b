@@ -1,0 +1,5 @@
+---
+- name: Backup IBM BAW directory if upgrade is needed
+  ansible.builtin.shell: >
+    tar -czf "{{ backup_dir }}/baw_backup.tar.gz" -C "{{ baw_dir }}" .
+  when: baw_installed | bool

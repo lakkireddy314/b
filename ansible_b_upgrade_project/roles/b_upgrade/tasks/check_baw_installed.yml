@@ -1,0 +1,4 @@
+---
+- name: Check if IBM BAW is installed
+  ansible.builtin.set_fact:
+    baw_installed: "{{ pre_upgrade_info.stdout is search('IBM BAW') }}"

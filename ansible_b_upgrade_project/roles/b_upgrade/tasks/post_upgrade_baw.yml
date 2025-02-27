@@ -1,0 +1,4 @@
+---
+- name: Verify new IBM BAW version
+  ansible.builtin.shell: "{{ baw_dir }}/bin/versionInfo.sh | grep Version"
+  register: post_upgrade_baw_info
