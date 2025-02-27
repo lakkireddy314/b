@@ -1,0 +1,9 @@
+all:
+  children:
+    BAW:
+      children:
+        perf:
+          hosts:
+            perf1: { ansible_host: 192.168.4.11 }
+            perf2: { ansible_host: 192.168.4.12 }
+            perf3: { ansible_host: 192.168.4.13 }

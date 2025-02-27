@@ -1,0 +1,6 @@
+---
+- name: Restart WebSphere service
+  ansible.builtin.service:
+    name: websphere
+    state: started
+  when: upgrade_websphere is defined and not upgrade_websphere.failed

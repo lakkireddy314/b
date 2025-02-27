@@ -1,0 +1,7 @@
+---
+backup_dir: "/tmp/im_backup"
+upgrade_log_dir: "/var/log/websphere_upgrade"
+rollback_upgrade: false
+websphere_next_repo: "http://repo.example.com/websphere"
+websphere_plugins_next_repo: "http://repo.example.com/websphere_plugins"
+ibm_http_next_repo: "http://repo.example.com/ibm_http"

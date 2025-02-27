@@ -1,0 +1,16 @@
+all:
+  children:
+    BAW:
+      children:
+        dev:
+          hosts:
+            dev1: { ansible_host: 192.168.1.11 }
+            dev2: { ansible_host: 192.168.1.12 }
+            dev3: { ansible_host: 192.168.1.13 }
+            dev4: { ansible_host: 192.168.1.14 }
+          children:
+            unit:
+              hosts:
+                unit1: { ansible_host: 192.168.2.11 }
+                unit2: { ansible_host: 192.168.2.12 }
+                unit3: { ansible_host: 192.168.2.13 }

@@ -1,0 +1,4 @@
+---
+- name: Verify new WebSphere version
+  ansible.builtin.shell: "/opt/IBM/WebSphere/AppServer/bin/versionInfo.sh | grep Version"
+  register: post_upgrade_info

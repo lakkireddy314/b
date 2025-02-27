@@ -1,0 +1,5 @@
+---
+- name: Capture pre-upgrade package list
+  ansible.builtin.shell: "{{ imcl_dir }}/tools/imcl listInstalledPackages -long"
+  register: pre_upgrade_info
+  changed_when: false

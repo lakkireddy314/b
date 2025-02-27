@@ -1,0 +1,4 @@
+---
+- name: Check if WebSphere is installed
+  ansible.builtin.set_fact:
+    websphere_installed: "{{ pre_upgrade_info.stdout is search('WebSphere Application Server') }}"

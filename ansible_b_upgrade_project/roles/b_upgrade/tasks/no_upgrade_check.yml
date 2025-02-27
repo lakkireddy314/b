@@ -1,0 +1,4 @@
+---
+- name: Determine if upgrade is needed
+  ansible.builtin.set_fact:
+    no_upgrade_needed: "{{ websphere_pre_version == websphere_target_version }}"

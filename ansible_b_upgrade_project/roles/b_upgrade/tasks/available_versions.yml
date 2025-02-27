@@ -1,0 +1,4 @@
+---
+- name: Fetch WebSphere target version
+  ansible.builtin.shell: "{{ imcl_dir }}/tools/imcl listAvailablePackages -repositories {{ websphere_next_repo }}"
+  register: available_websphere_info

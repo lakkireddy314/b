@@ -1,0 +1,5 @@
+---
+- name: Upgrade WebSphere
+  ansible.builtin.shell: "{{ imcl_dir }}/tools/imcl upgrade com.ibm.websphere.ND -repositories {{ websphere_next_repo }} -installationDirectory {{ install_directory }}"
+  register: upgrade_websphere
+  failed_when: upgrade_websphere.rc != 0

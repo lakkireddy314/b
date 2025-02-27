@@ -1,0 +1,5 @@
+---
+- name: Check available disk space
+  ansible.builtin.command: "/usr/bin/check_disk_space.sh"
+  register: disk_check
+  failed_when: disk_check.rc != 0

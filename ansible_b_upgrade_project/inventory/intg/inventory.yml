@@ -1,0 +1,9 @@
+all:
+  children:
+    BAW:
+      children:
+        intg:
+          hosts:
+            intg1: { ansible_host: 192.168.3.11 }
+            intg2: { ansible_host: 192.168.3.12 }
+            intg3: { ansible_host: 192.168.3.13 }
