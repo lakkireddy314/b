@@ -1,4 +1,6 @@
 ---
+- include_vars: vars/main.yml
+
 - import_tasks: precheck.yml
 - import_tasks: pre_upgrade.yml
 - import_tasks: check_installed.yml

@@ -1,0 +1,24 @@
+---
+# Default variables for b_upgrade role
+
+# WebSphere variables
+websphere_version: "9.0.5"
+websphere_install_dir: "/opt/IBM/WebSphere/AppServer"
+
+# WebSphere Plugins variables
+websphere_plugins_version: "9.0.5"
+websphere_plugins_install_dir: "/opt/IBM/WebSphere/Plugins"
+
+# IBM HTTP Server variables
+ibm_http_version: "9.0.5"
+ibm_http_install_dir: "/opt/IBM/HTTPServer"
+
+# IBM BAW variables
+baw_version: "24.0.0.1"
+baw_install_dir: "/opt/IBM/BAW"
+
+# Repositories
+websphere_next_repo: "http://repo.example.com/websphere"
+websphere_plugins_next_repo: "http://repo.example.com/websphere_plugins"
+ibm_http_next_repo: "http://repo.example.com/ibm_http"
+baw_next_repo: "http://repo.example.com/baw"
