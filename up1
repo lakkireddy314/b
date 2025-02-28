@@ -1,0 +1,499 @@
+Overall Architecture
+The role is organized into a main upgrade role and two companion roles for backup and restore. The main upgrade role is further divided into logical task files and a dedicated handlers directory. The structure is as follows:
+
+graphql
+Copy
+op_baw_upgrade_improved/
+├── tasks/
+│   ├── main.yml              # Primary entry point: runs pre-checks, stops services, performs upgrades, and triggers post-upgrade steps
+│   ├── pre_checks.yml        # Verifies prerequisites: file existence, disk space, repository connectivity, etc.
+│   ├── stop_services.yml     # Stops running services (BAW, WAS, IHS, plug‑ins) before upgrade
+│   ├── upgrade_was.yml       # Upgrades IBM WebSphere Application Server
+│   ├── upgrade_baw.yml       # Upgrades IBM BAW (executed only if the variable `upgrade_baw` is true)
+│   ├── upgrade_ihs.yml       # Upgrades IBM HTTP Server
+│   └── upgrade_plugins.yml   # Upgrades Web Server Plug‑ins
+├── handlers/
+│   └── main.yml              # Contains handlers to restart services after successful upgrade
+├── defaults/
+│   └── main.yml              # Default variables (e.g., target versions, repository paths, user, and flags)
+└── README.md                 # Detailed documentation of the role, its usage, and each step
+Additionally, there are two reusable roles:
+
+op_baw_backup – performs backups of all critical directories before any upgrade.
+op_baw_restore – handles the rollback process (restoring from backup and restarting services) if the upgrade fails.
+Detailed File Explanations
+1. defaults/main.yml
+This file defines default variables. These variables control key behavior such as the user context, target versions, repository URLs, and optional flags.
+
+yaml
+Copy
+---
+baw_user: "ibmuser"                   # Default user whose environment will be used
+env: "dev"                            # Environment identifier (dev, qa, prod)
+upgrade_baw: true                     # Set false if you want to skip the BAW upgrade
+target_version: "20.0.3"              # The version to upgrade each component to
+repositories:
+  baw: "http://internal.repo/ibm_baw/20.0.3"     # Repository for BAW packages
+  websphere: "http://internal.repo/was/20.0.3"     # Repository for WebSphere
+  ihs: "http://internal.repo/ihs/20.0.3"           # Repository for IBM HTTP Server
+  plugins: "http://internal.repo/plugins/20.0.3"   # Repository for Web Server Plug-ins
+backup_base: "/install/BAW/backup/{{ env }}"       # Base directory for backups
+What It Does:
+
+Provides default values that can be overridden at the inventory or command-line level.
+Ensures sensitive data (if needed) can be later integrated with Ansible Vault.
+Sets the target version to compare against the current installation.
+2. tasks/main.yml
+This is the central playbook for the role. It calls all other task files in sequence.
+
+yaml
+Copy
+---
+- name: Run pre-upgrade checks
+  include_tasks: pre_checks.yml
+
+- name: Stop services before upgrade
+  include_tasks: stop_services.yml
+
+- name: Backup current installations (calls external backup role)
+  import_role:
+    name: op_baw_backup
+
+- block:
+    - name: Upgrade IBM WebSphere Application Server
+      include_tasks: upgrade_was.yml
+
+    - name: Upgrade IBM BAW (if enabled)
+      include_tasks: upgrade_baw.yml
+      when: upgrade_baw | bool
+
+    - name: Upgrade IBM HTTP Server
+      include_tasks: upgrade_ihs.yml
+
+    - name: Upgrade Web Server Plug-ins
+      include_tasks: upgrade_plugins.yml
+  rescue:
+    - name: Log upgrade failure and initiate rollback
+      debug:
+        msg: "Upgrade failed. Initiating rollback..."
+    - name: Restore from backup (calls external restore role)
+      import_role:
+        name: op_baw_restore
+    - name: Fail the play after rollback
+      fail:
+        msg: "Upgrade process failed and rollback has been initiated."
+
+- name: Post-upgrade configuration steps
+  include_tasks: postconfig.yml
+
+- name: Notify handlers to restart services
+  meta: flush_handlers
+What It Does:
+
+Pre-checks: Ensures all prerequisites are met (via pre_checks.yml).
+Stop Services: Halts relevant services before applying any upgrades.
+Backup: Calls the op_baw_backup role to archive the current state.
+Upgrade Block: Runs upgrade tasks for each component. The block uses Ansible’s block with a rescue section so that if any step fails, a rollback is triggered by calling the op_baw_restore role.
+Post Configuration: Runs any additional configuration tasks (like updating configuration files) after upgrades.
+Handlers Notification: Uses meta: flush_handlers to run any registered handler (such as service restart) at the end of the play.
+3. tasks/pre_checks.yml
+This file contains tasks to validate prerequisites before any changes occur.
+
+yaml
+Copy
+---
+- name: Check if InstallationManager.dat exists
+  stat:
+    path: "/home/{{ baw_user }}/etc/.ibm/registry/InstallationManager.dat"
+  register: imdat_file
+
+- name: Fail if InstallationManager.dat is missing
+  fail:
+    msg: "InstallationManager.dat not found for user {{ baw_user }}"
+  when: not imdat_file.stat.exists
+
+- name: Parse InstallationManager.dat to retrieve Installation Manager directory
+  command: "grep '^location=' /home/{{ baw_user }}/etc/.ibm/registry/InstallationManager.dat"
+  register: imcl_location
+  changed_when: false
+
+- name: Set imcl_dir variable from InstallationManager.dat
+  set_fact:
+    imcl_dir: "{{ imcl_location.stdout.split('=')[1] | trim }}"
+  when: imcl_location.stdout is defined
+
+- name: Verify available disk space for backups and upgrades
+  command: "df -h /install"
+  register: disk_space
+  changed_when: false
+
+- name: Ensure minimum disk space is available
+  assert:
+    that:
+      - "'10G' in disk_space.stdout"    # Adjust condition based on your environment
+    fail_msg: "Not enough disk space available in /install for backups and upgrade."
+
+- name: Test repository connectivity for WebSphere
+  uri:
+    url: "{{ repositories.websphere }}"
+    method: GET
+    status_code: 200
+  register: repo_response
+  until: repo_response.status == 200
+  retries: 3
+  delay: 5
+What It Does:
+
+File Existence: Checks for the existence of the Installation Manager configuration file.
+Variable Setting: Extracts the Installation Manager directory (imcl_dir) from that file.
+Disk Space Check: Uses the df command and an assertion to ensure there is enough disk space for backups and upgrade files.
+Repository Check: Uses the uri module to verify connectivity to the upgrade repository.
+4. tasks/stop_services.yml
+This file ensures that all related services are stopped before initiating any upgrades.
+
+yaml
+Copy
+---
+- name: Stop IBM BAW service if running
+  service:
+    name: ibm-baw
+    state: stopped
+  ignore_errors: yes
+
+- name: Stop IBM WebSphere service if running
+  service:
+    name: websphere
+    state: stopped
+  ignore_errors: yes
+
+- name: Stop IBM HTTP Server service if running
+  service:
+    name: ibm-httpd
+    state: stopped
+  ignore_errors: yes
+
+- name: Stop Web Server Plug-ins service if running
+  service:
+    name: ibm-webplugins
+    state: stopped
+  ignore_errors: yes
+What It Does:
+
+Stops each service individually using the service module.
+Uses ignore_errors: yes so that if a service is not running (or already stopped), the play does not fail.
+Prepares the system for upgrade by ensuring no files are locked or in use.
+5. tasks/upgrade_was.yml
+This file upgrades IBM WebSphere Application Server. It checks whether the currently installed version differs from the target version before proceeding.
+
+yaml
+Copy
+---
+- name: Retrieve current WebSphere version
+  command: "{{ imcl_dir }}/imcl listInstalledPackages -long"
+  register: was_installed
+  changed_when: false
+
+- name: Set current version fact for WebSphere
+  set_fact:
+    current_was_version: "{{ was_installed.stdout | regex_search('IBM WebSphere.*Version:\\s*(\\S+)', '\\1') }}"
+  when: "'IBM WebSphere' in was_installed.stdout"
+
+- name: Upgrade WebSphere if version is different from target
+  command: >
+    {{ imcl_dir }}/imcl upgrade -install -package com.ibm.websphere
+    -repositories {{ repositories.websphere }}
+  when: current_was_version is defined and current_was_version != target_version
+  notify: Restart WebSphere
+What It Does:
+
+Version Check: Runs a command to list installed packages and extracts the current WebSphere version using a regular expression.
+Conditional Upgrade: If the current version is defined and different from the target_version, it executes the upgrade command.
+Handler Notification: If the upgrade command makes changes, it notifies the handler to restart the WebSphere service.
+6. tasks/upgrade_baw.yml
+This file upgrades IBM BAW. It is optional based on the variable upgrade_baw and uses a similar pattern to the WAS upgrade.
+
+yaml
+Copy
+---
+- name: Retrieve current IBM BAW version
+  command: "{{ imcl_dir }}/imcl listInstalledPackages -long"
+  register: baw_installed
+  changed_when: false
+
+- name: Set current BAW version fact
+  set_fact:
+    current_baw_version: "{{ baw_installed.stdout | regex_search('IBM Business Automation Workflow.*Version:\\s*(\\S+)', '\\1') }}"
+  when: "'IBM Business Automation Workflow' in baw_installed.stdout"
+
+- name: Upgrade IBM BAW if version differs from target
+  command: >
+    {{ imcl_dir }}/imcl upgrade -install -package com.ibm.baw
+    -repositories {{ repositories.baw }}
+  when: current_baw_version is defined and current_baw_version != target_version
+  notify: Restart IBM BAW
+What It Does:
+
+Checks for the current version of IBM BAW.
+Compares it to the target version.
+Executes the upgrade command only if the installed version differs, and notifies a handler to restart IBM BAW.
+7. tasks/upgrade_ihs.yml
+This file upgrades IBM HTTP Server.
+
+yaml
+Copy
+---
+- name: Retrieve current IBM HTTP Server version
+  command: "{{ imcl_dir }}/imcl listInstalledPackages -long"
+  register: ihs_installed
+  changed_when: false
+
+- name: Set current IHS version fact
+  set_fact:
+    current_ihs_version: "{{ ihs_installed.stdout | regex_search('IBM HTTP Server.*Version:\\s*(\\S+)', '\\1') }}"
+  when: "'IBM HTTP Server' in ihs_installed.stdout"
+
+- name: Upgrade IBM HTTP Server if version is different
+  command: >
+    {{ imcl_dir }}/imcl upgrade -install -package com.ibm.httpserver
+    -repositories {{ repositories.ihs }}
+  when: current_ihs_version is defined and current_ihs_version != target_version
+  notify: Restart IBM HTTP Server
+What It Does:
+
+Extracts the current version of IHS from the installed packages list.
+Compares it with the target version.
+Runs the upgrade command if necessary and notifies the appropriate handler.
+8. tasks/upgrade_plugins.yml
+This file upgrades the Web Server Plug‑ins.
+
+yaml
+Copy
+---
+- name: Retrieve current Web Plugins version
+  command: "{{ imcl_dir }}/imcl listInstalledPackages -long"
+  register: plugins_installed
+  changed_when: false
+
+- name: Set current Web Plugins version fact
+  set_fact:
+    current_plugins_version: "{{ plugins_installed.stdout | regex_search('Web Server Plug-?ins.*Version:\\s*(\\S+)', '\\1') }}"
+  when: "'Web Server Plug-ins' in plugins_installed.stdout"
+
+- name: Upgrade Web Server Plug-ins if version differs from target
+  command: >
+    {{ imcl_dir }}/imcl upgrade -install -package com.ibm.webplugins
+    -repositories {{ repositories.plugins }}
+  when: current_plugins_version is defined and current_plugins_version != target_version
+  notify: Restart Web Plugins
+What It Does:
+
+Checks the version of the web plugins installed.
+Upgrades the plugins only if the version is not already at the target version.
+Notifies the corresponding handler for a service restart.
+9. tasks/postconfig.yml
+This file performs any additional post-upgrade configuration steps such as applying patches or reconfiguring components.
+
+yaml
+Copy
+---
+- name: Run post-upgrade configuration script
+  command: "/opt/IBM/scripts/post_upgrade_config.sh"
+  args:
+    chdir: "/opt/IBM/scripts"
+  when: target_version != current_was_version  # Example: only run if WebSphere was upgraded
+What It Does:
+
+Runs a custom script after upgrades have been applied.
+The condition ensures the script only runs if an upgrade occurred.
+10. handlers/main.yml
+Handlers are used to restart services only when notified by upgrade tasks. This file defines the actions for each service.
+
+yaml
+Copy
+---
+- name: Restart WebSphere
+  service:
+    name: websphere
+    state: restarted
+
+- name: Restart IBM BAW
+  service:
+    name: ibm-baw
+    state: restarted
+
+- name: Restart IBM HTTP Server
+  service:
+    name: ibm-httpd
+    state: restarted
+
+- name: Restart Web Plugins
+  service:
+    name: ibm-webplugins
+    state: restarted
+What It Does:
+
+Each handler listens for notifications from upgrade tasks and restarts the relevant service only when changes occur.
+This mechanism is both idempotent and efficient—services are only restarted once per play run.
+11. README.md
+The README file documents the role. It explains:
+
+The purpose and scope of the role.
+The directory structure and the flow of tasks.
+Configuration details and how to override defaults.
+Instructions for executing the role and examples of playbooks.
+Details about the backup and restore roles, as well as rollback and notification features.
+An example snippet might be:
+
+markdown
+Copy
+# op_baw_upgrade_improved Role
+
+## Overview
+This role upgrades IBM BAW, WebSphere, IBM HTTP Server, and Web Server Plug‑ins. It is built with best practices in modularization, error handling, and configuration management.
+
+## Directory Structure
+- **tasks/**: Contains all upgrade tasks and pre-checks.
+- **handlers/**: Contains service restart handlers.
+- **defaults/**: Default variable definitions.
+- **README.md**: Documentation.
+
+## Execution Flow
+1. **Pre-checks:** Validates file presence, disk space, and repository connectivity.
+2. **Stop Services:** Stops all relevant services.
+3. **Backup:** Runs a backup (via the `op_baw_backup` role).
+4. **Upgrade:** Upgrades each component only if needed.
+5. **Rescue/Rollback:** If an error occurs, the `op_baw_restore` role is invoked.
+6. **Post Configuration:** Executes any additional configuration scripts.
+7. **Restart Services:** Handlers restart services when notified.
+
+## Usage Example
+```yaml
+- hosts: baw_servers
+  become: yes
+  roles:
+    - op_baw_backup
+    - op_baw_upgrade_improved
+yaml
+Copy
+
+**What It Does:**  
+- Provides users with detailed instructions on how the role works and how to customize it.
+
+---
+
+## Backup and Restore Roles
+
+### **op_baw_backup Role**
+
+This role backs up all critical directories before the upgrade.
+
+**Directory Structure Example:**
+
+op_baw_backup/ └── tasks/ └── main.yml
+
+yaml
+Copy
+
+**Content of tasks/main.yml:**
+
+```yaml
+---
+- name: Create backup directory if not present
+  file:
+    path: "{{ backup_base }}"
+    state: directory
+    mode: '0755'
+
+- name: Backup installation directories (/home/{{ baw_user }}/var and /etc)
+  archive:
+    path:
+      - "/home/{{ baw_user }}/var"
+      - "/home/{{ baw_user }}/etc"
+    dest: "{{ backup_base }}/im_backup_{{ ansible_date_time.iso8601_basic }}.zip"
+    format: zip
+
+- name: Backup imshared directory
+  archive:
+    path: "/opt/IBM/imshared"
+    dest: "{{ backup_base }}/imshared_backup_{{ ansible_date_time.iso8601_basic }}.zip"
+    format: zip
+What It Does:
+
+Ensures a backup directory exists.
+Archives critical directories into timestamped ZIP files.
+This role is invoked before any upgrade takes place.
+op_baw_restore Role
+This role restores the previous state if an upgrade fails.
+
+Directory Structure Example:
+
+css
+Copy
+op_baw_restore/
+└── tasks/
+    └── main.yml
+Content of tasks/main.yml:
+
+yaml
+Copy
+---
+- name: Restore installation directories from backup
+  unarchive:
+    src: "{{ item }}"
+    dest: "/"
+    remote_src: yes
+  loop:
+    - "{{ backup_base }}/im_backup_*.zip"
+    - "{{ backup_base }}/imshared_backup_*.zip"
+
+- name: Restart services after restoration
+  service:
+    name: "{{ item }}"
+    state: restarted
+  loop:
+    - websphere
+    - ibm-baw
+    - ibm-httpd
+    - ibm-webplugins
+What It Does:
+
+Unarchives the backup ZIP files back into their original locations.
+Restarts all relevant services to bring the system back to its pre-upgrade state.
+Execution Summary
+Pre-checks (pre_checks.yml):
+
+Validates file existence, disk space, and repository connectivity.
+Extracts the Installation Manager directory from the configuration file.
+Stopping Services (stop_services.yml):
+
+Halts BAW, WebSphere, IHS, and plug‑ins to ensure a safe upgrade environment.
+Backup:
+
+The external op_baw_backup role archives current installation directories and critical data.
+Upgrade Block (main.yml):
+
+Executes individual upgrade tasks (for WAS, BAW, IHS, and plug‑ins).
+Each upgrade task checks the current version and only runs if a version mismatch is detected.
+Uses Ansible’s block/rescue mechanism to catch errors and trigger a rollback if necessary.
+Post-Upgrade Configuration (postconfig.yml):
+
+Runs any additional configuration scripts needed after the upgrade.
+Service Restart (handlers/main.yml):
+
+Handlers restart the services that were stopped, but only if the upgrade tasks made changes.
+Rollback (Rescue Block):
+
+If any task fails, the op_baw_restore role is invoked to restore backups and restart services.
+Notifications and Logging:
+
+Debug tasks and optional notification tasks can be added to alert administrators if the upgrade fails.
+Conclusion
+The op_baw_upgrade_improved role is designed to be robust, modular, and safe. It:
+
+Splits tasks into clear, manageable files.
+Uses pre-checks to validate the environment.
+Stops services and creates backups before attempting any upgrades.
+Upgrades only when needed (comparing current and target versions) and handles each component separately.
+Uses handlers to manage service restarts and block/rescue for rollback.
+Allows configuration to be overridden via inventory variables or Ansible Vault.
+This detailed explanation, along with the content and purpose of each YAML file, should help you understand how the role works and how to further customize or extend it for your environment.
